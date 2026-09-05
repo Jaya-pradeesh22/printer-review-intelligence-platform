@@ -17,7 +17,18 @@ from app.schemas.product_schemas import ProductCreate
 
 from app.api.review_api import router as review_router
 
+from app.models.product_highlight import ProductHighlight
+
 from app.api.analytics_api import router as analytics_router
+
+from app.api.insights_api import router as insights_router
+
+from app.api.highlights_api import router as highlights_router
+
+from app.models.raw_review import RawReview
+from app.api.reviews_api import router as raw_reviews_router
+
+
 
 Base.metadata.create_all(bind=engine)
 
@@ -35,6 +46,20 @@ app.include_router(
 app.include_router(
     analytics_router,
     tags=["Analytics"]
+)
+
+app.include_router(
+    insights_router,
+    tags=["Insights"]
+)
+
+app.include_router(
+    highlights_router,
+    tags=["Highlights"]
+)
+app.include_router(
+    raw_reviews_router,
+    tags=["Raw Reviews"]
 )
 
 @app.get("/")
@@ -126,102 +151,4 @@ def issue_sentiment_analytics():
     analytics={}
     for category, sentiment, count in results:
         if category not in analytics:
-            analytics[category] = {
-                "category":category,
-                "POSITIVE":0,
-                "NEGATIVE":0,
-                "NEUTRAL":0
-            }
-
-        analytics[category][sentiment]=count
-    return list(analytics.values())
-
-# @app.get("/analytics/reviews")
-# def model_issue_analytics():
-
-#     db: Session = SessionLocal()
-
-#     results = db.query(
-#         Product.model_name,
-#         IssueCategory.category_name,
-#         Review.sentiment,
-#         func.count(Review.id)
-#     ).join(
-#         Review,
-#         Product.id == Review.product_id
-#     ).join(
-#         ReviewIssueMapping,
-#         Review.id == ReviewIssueMapping.review_id
-#     ).join(
-#         IssueCategory,
-#         IssueCategory.id == ReviewIssueMapping.issue_category_id
-#     ).group_by(
-#         Product.model_name,
-#         IssueCategory.category_name,
-#         Review.sentiment
-#     ).all()
-
-#     db.close()
-
-#     analytics = []
-
-#     for model_name, category, sentiment, count in results:
-
-#         analytics.append({
-#             "model_name": model_name,
-#             "category": category,
-#             "sentiment": sentiment,
-#             "count": count
-#         })
-
-#     return analytics
-
-@app.get("/analytics/reviews")
-def get_review_details():
-
-    db: Session = SessionLocal()
-
-    reviews = db.query(
-        Review.id,
-        Product.model_name,
-        Review.review_text,
-        Review.rating,
-        Review.source,
-        Review.sentiment
-    ).join(
-        Product,
-        Product.id == Review.product_id
-    ).all()
-
-    result = []
-
-    for review in reviews:
-
-        issues = db.query(
-            IssueCategory.category_name
-        ).join(
-            ReviewIssueMapping,
-            IssueCategory.id ==
-            ReviewIssueMapping.issue_category_id
-        ).filter(
-            ReviewIssueMapping.review_id ==
-            review.id
-        ).all()
-
-        issue_list = [
-            issue.category_name
-            for issue in issues
-        ]
-
-        result.append({
-            "model_name": review.model_name,
-            "review": review.review_text,
-            "rating": review.rating,
-            "source": review.source,
-            "sentiment": review.sentiment,
-            "issues": issue_list
-        })
-
-    db.close()
-
-    return result
+            analytics[category]

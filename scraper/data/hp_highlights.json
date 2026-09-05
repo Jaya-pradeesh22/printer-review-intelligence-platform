@@ -1,0 +1,163 @@
+[
+    {
+        "model_name": "HP Smart Tank 580",
+        "category": "Print quality",
+        "mention_count": 49,
+        "trend": "UP",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Smart Tank 580",
+        "category": "Home use",
+        "mention_count": 36,
+        "trend": "UP",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Smart Tank 580",
+        "category": "Installation",
+        "mention_count": 28,
+        "trend": "UP",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Smart Tank 580",
+        "category": "Reliability",
+        "mention_count": 110,
+        "trend": "NEUTRAL",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Smart Tank 580",
+        "category": "Printing speed",
+        "mention_count": 62,
+        "trend": "DOWN",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Smart Tank 580",
+        "category": "Wireless connectivity",
+        "mention_count": 44,
+        "trend": "DOWN",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Smart Tank 580",
+        "category": "Duplex printing",
+        "mention_count": 19,
+        "trend": "DOWN",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Smart Tank 580",
+        "category": "Defective",
+        "mention_count": 14,
+        "trend": "DOWN",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP capable AI Ink Advantage 4388",
+        "category": "Setup",
+        "mention_count": 14,
+        "trend": "UP",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP capable AI Ink Advantage 4388",
+        "category": "Quality",
+        "mention_count": 105,
+        "trend": "NEUTRAL",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP capable AI Ink Advantage 4388",
+        "category": "Home use",
+        "mention_count": 13,
+        "trend": "NEUTRAL",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP capable AI Ink Advantage 4388",
+        "category": "Functionality",
+        "mention_count": 54,
+        "trend": "DOWN",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP capable AI Ink Advantage 4388",
+        "category": "Connectivity",
+        "mention_count": 20,
+        "trend": "DOWN",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP capable AI Ink Advantage 4388",
+        "category": "Print quality",
+        "mention_count": 17,
+        "trend": "DOWN",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP capable AI Ink Advantage 4388",
+        "category": "Ink consumption",
+        "mention_count": 16,
+        "trend": "DOWN",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP capable AI Ink Advantage 4388",
+        "category": "Print speed",
+        "mention_count": 8,
+        "trend": "DOWN",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Laser 1008w Printer",
+        "category": "Quality",
+        "mention_count": 91,
+        "trend": "NEUTRAL",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Laser 1008w Printer",
+        "category": "Value for money",
+        "mention_count": 35,
+        "trend": "NEUTRAL",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Laser 1008w Printer",
+        "category": "User-friendliness",
+        "mention_count": 10,
+        "trend": "NEUTRAL",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Laser 1008w Printer",
+        "category": "Setup",
+        "mention_count": 8,
+        "trend": "NEUTRAL",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Laser 1008w Printer",
+        "category": "Wireless connectivity",
+        "mention_count": 29,
+        "trend": "DOWN",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Laser 1008w Printer",
+        "category": "Printer speed",
+        "mention_count": 11,
+        "trend": "DOWN",
+        "source": "Amazon"
+    },
+    {
+        "model_name": "HP Laser 1008w Printer",
+        "category": "Toner life",
+        "mention_count": 9,
+        "trend": "DOWN",
+        "source": "Amazon"
+    }
+]

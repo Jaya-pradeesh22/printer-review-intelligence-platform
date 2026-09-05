@@ -60,33 +60,56 @@ try:
     print(driver.title)
 
     # ==========================================
-    # FIND REVIEWS
+    # FIND REVIEWS ACROSS MULTIPLE PAGES
     # ==========================================
-
-    reviews = driver.find_elements(
-        By.CSS_SELECTOR,
-        'span[data-hook="review-body"]'
-    )
-
-    print("\nReviews Found:", len(reviews))
+    # It's not feasible to scrape every review Amazon has posted,
+    # so cap this at MAX_PAGES (10 reviews/page typically).
+    MAX_PAGES = 5
 
     reviews_data = []
+    page_num = 1
 
-    for i, review in enumerate(reviews, start=1):
+    while page_num <= MAX_PAGES:
 
-        review_text = review.text.strip()
-
-        print("\n--------------------------")
-        print(f"Review {i}")
-        print(review_text)
-
-        reviews_data.append(
-            {
-                "product": "HP Smart Tank 580",
-                "review": review_text,
-                "source": "Amazon"
-            }
+        reviews = driver.find_elements(
+            By.CSS_SELECTOR,
+            'span[data-hook="review-body"]'
         )
+
+        print(f"\nPage {page_num}: Reviews Found: {len(reviews)}")
+
+        for i, review in enumerate(reviews, start=1):
+
+            review_text = review.text.strip()
+
+            print("\n--------------------------")
+            print(f"Review {i} (page {page_num})")
+            print(review_text)
+
+            reviews_data.append(
+                {
+                    "product": "HP Smart Tank 580",
+                    "review": review_text,
+                    "source": "Amazon"
+                }
+            )
+
+        # Try to go to the next page.
+        # NOTE: Verify this selector in your browser -
+        # Amazon uses a "Next page" link, commonly matched by
+        # data-hook="pagination-next" or link text "Next page".
+        try:
+            next_button = driver.find_element(
+                By.CSS_SELECTOR,
+                '[data-hook="pagination-next"] a'
+            )
+            next_button.click()
+            time.sleep(4)
+            page_num += 1
+
+        except Exception:
+            print("\nNo further pages found. Stopping.")
+            break
 
     # ==========================================
     # SAVE JSON
