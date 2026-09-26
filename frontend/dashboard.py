@@ -7,6 +7,7 @@ import re
 import json
 import os
 import subprocess
+import html
 
 # -------------------------------------------------------------------
 # Configuration & Custom CSS (Minimalist Light Theme)
@@ -64,6 +65,17 @@ st.markdown("""
         color: #0d9488;
         font-size: 0.8rem;
         font-weight: 500;
+    }
+        .kpi-progress-track {
+        background: #f1f5f9;
+        border-radius: 4px;
+        height: 6px;
+        margin-top: 10px;
+        overflow: hidden;
+    }
+    .kpi-progress-fill {
+        height: 100%;
+        border-radius: 4px;
     }
 
     .mini-stat {
@@ -245,7 +257,10 @@ CATEGORY_GROUP_MAP = {
     "Speed": "Print Performance",
     "Reliability": "Reliability",
     "Setup & Install": "Setup & Functionality",
-    "App & Software": "Setup & Functionality"
+    "App & Software": "Setup & Functionality",
+    "Support": "Support & Service",
+    "General / No Issue": "No Specific Issue",
+    "Others / Unclear": "Unclear / Unclassified"
 }
 
 CHAT_STOPWORDS = {
@@ -1012,36 +1027,42 @@ with tab_dashboard:
             show_review_modal("Total", selected_model, filtered_reviews)
 
     with kpi_col2:
+        pos_pct = (pos_cnt / total_cnt * 100) if total_cnt > 0 else 0
         st.markdown(f"""
         <div class="kpi-card" style="border-top: 4px solid #10b981;">
             <div class="kpi-icon-badge" style="background:#d1fae5;">😊</div>
             <div class="kpi-title">Positive</div>
             <div class="kpi-value">{pos_cnt}</div>
-            <div class="kpi-subtext">{(pos_cnt/total_cnt*100 if total_cnt > 0 else 0):.1f}% of total</div>
+            <div class="kpi-subtext">{pos_pct:.1f}% of total</div>
+            <div class="kpi-progress-track"><div class="kpi-progress-fill" style="width:{pos_pct:.1f}%;background:#10b981;"></div></div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("View Positive →", key="btn_pos", use_container_width=True):
             show_review_modal("Positive", selected_model, filtered_reviews)
 
     with kpi_col3:
+        neg_pct = (neg_cnt / total_cnt * 100) if total_cnt > 0 else 0
         st.markdown(f"""
         <div class="kpi-card" style="border-top: 4px solid #f43f5e;">
             <div class="kpi-icon-badge" style="background:#fee2e2;">😠</div>
             <div class="kpi-title">Negative</div>
             <div class="kpi-value">{neg_cnt}</div>
-            <div class="kpi-subtext">{(neg_cnt/total_cnt*100 if total_cnt > 0 else 0):.1f}% of total</div>
+            <div class="kpi-subtext">{neg_pct:.1f}% of total</div>
+            <div class="kpi-progress-track"><div class="kpi-progress-fill" style="width:{neg_pct:.1f}%;background:#f43f5e;"></div></div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("View Negative →", key="btn_neg", use_container_width=True):
             show_review_modal("Negative", selected_model, filtered_reviews)
 
     with kpi_col4:
+        neu_pct = (neu_cnt / total_cnt * 100) if total_cnt > 0 else 0
         st.markdown(f"""
         <div class="kpi-card" style="border-top: 4px solid #f59e0b;">
             <div class="kpi-icon-badge" style="background:#fef3c7;">😐</div>
             <div class="kpi-title">Neutral</div>
             <div class="kpi-value">{neu_cnt}</div>
-            <div class="kpi-subtext">{(neu_cnt/total_cnt*100 if total_cnt > 0 else 0):.1f}% of total</div>
+            <div class="kpi-subtext">{neu_pct:.1f}% of total</div>
+            <div class="kpi-progress-track"><div class="kpi-progress-fill" style="width:{neu_pct:.1f}%;background:#f59e0b;"></div></div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("View Neutral →", key="btn_neu", use_container_width=True):
@@ -1071,69 +1092,68 @@ with tab_dashboard:
         <div class="mini-stat-value">{sources_tracked}</div></div>
         """, unsafe_allow_html=True)
 
-    st.markdown("---")
+        st.markdown("---")
+
 
     # ---------------- Charts: issue heatmap + sentiment donut ----------------
     c_left, c_right = st.columns([6, 4])
 
     with c_left:
-        st.subheader("🔥 Issue Heatmap — % Negative by Product & Category")
-        if not filtered_reviews.empty and "category" in filtered_reviews.columns:
-            df_heat = filtered_reviews.copy()
-            df_heat["category_group"] = df_heat["category"].map(CATEGORY_GROUP_MAP).fillna("Other")
+                st.subheader("🔥 Top Issues by Product & Category" if selected_model == "All Models" else f"🔥 Issue Breakdown — {selected_model}")
+                if not filtered_reviews.empty and "category" in filtered_reviews.columns:
+                    df_heat = filtered_reviews.copy()
+                    #df_heat = df_heat[~df_heat["category"].isin(["General / No Issue", "Others / Unclear"])]
+                    df_heat["category_group"] = df_heat["category"].map(CATEGORY_GROUP_MAP).fillna("Other")
 
-            pivot_total = (
-                df_heat.groupby(["model_name", "category_group"]).size()
-                .unstack(fill_value=0)
-            )
+                    group_cols = ["model_name", "category_group"] if selected_model == "All Models" else ["category_group"]
 
-            neg_df = df_heat[df_heat["sentiment"].str.contains("Negative", na=False)]
-            pivot_neg = (
-                neg_df.groupby(["model_name", "category_group"]).size()
-                .unstack(fill_value=0)
-                .reindex(index=pivot_total.index, columns=pivot_total.columns, fill_value=0)
-            )
+                    total_counts = df_heat.groupby(group_cols).size()
+                    neg_df = df_heat[df_heat["sentiment"].str.contains("Negative", na=False)]
+                    neg_counts = neg_df.groupby(group_cols).size().reindex(total_counts.index, fill_value=0)
 
-            if not pivot_total.empty and pivot_total.values.sum() > 0:
-                pct_negative = (pivot_neg / pivot_total.replace(0, pd.NA) * 100).round(1)
+                    summary = pd.DataFrame({"total": total_counts, "negative": neg_counts}).reset_index()
+                    summary["pct_negative"] = (summary["negative"] / summary["total"] * 100).round(1)
 
-                text_labels = pct_negative.copy().astype(object)
-                for r in pivot_total.index:
-                    for c in pivot_total.columns:
-                        total_n = pivot_total.loc[r, c]
-                        if total_n == 0:
-                            text_labels.loc[r, c] = ""
+                    if selected_model == "All Models":
+                        summary["label"] = summary["model_name"] + " — " + summary["category_group"]
+                        summary = summary.sort_values("pct_negative", ascending=False).head(10)
+                    else:
+                        summary["label"] = summary["category_group"]
+                        summary = summary.sort_values("pct_negative", ascending=False)
+
+                    if not summary.empty:
+                        summary = summary.sort_values("pct_negative", ascending=True)  # biggest bar on top
+                        fig_bar = go.Figure(go.Bar(
+                            x=summary["pct_negative"],
+                            y=summary["label"],
+                            orientation="h",
+                            marker=dict(
+                                color=summary["pct_negative"],
+                                colorscale=[[0, "#0d9488"], [0.5, "#facc15"], [1, "#f43f5e"]],
+                                cmin=0, cmax=100
+                            ),
+                            text=[f"{pct:.0f}% ({int(n)})" for pct, n in zip(summary["pct_negative"], summary["total"])],
+                            textposition="inside",
+                            insidetextfont=dict(color="#ffffff"),
+                            hovertemplate="<b>%{y}</b><br>Negative: %{x:.1f}%<extra></extra>"
+                        ))
+                        fig_bar.update_layout(
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            font=dict(color="#334155"),
+                            margin=dict(t=10, l=10, r=70, b=10),
+                            xaxis=dict(title="% Negative", range=[0, 100]),
+                            height=max(300, 42 * len(summary))
+                        )
+                        st.plotly_chart(fig_bar, use_container_width=True)
+                        if selected_model == "All Models":
+                            st.caption("Top 10 product/category combinations ranked by % negative reviews. Label shows % negative and total review count.")
                         else:
-                            pct_val = pct_negative.loc[r, c]
-                            text_labels.loc[r, c] = f"{pct_val:.0f}%<br>({total_n})"
-
-                fig_heat = go.Figure(data=go.Heatmap(
-                    z=pct_negative.values,
-                    x=pct_negative.columns.tolist(),
-                    y=pct_negative.index.tolist(),
-                    colorscale=[[0, "#0d9488"], [0.5, "#facc15"], [1, "#f43f5e"]],
-                    zmin=0, zmax=100,
-                    text=text_labels.values,
-                    texttemplate="%{text}",
-                    textfont={"size": 12, "color": "#0f172a"},
-                    hovertemplate="<b>%{y}</b><br>%{x}<br>Negative: %{z:.1f}%<extra></extra>",
-                    colorbar=dict(title="% Negative", ticksuffix="%"),
-                    xgap=3, ygap=3
-                ))
-                fig_heat.update_layout(
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#334155"),
-                    margin=dict(t=10, l=10, r=10, b=10),
-                    xaxis=dict(side="top", tickangle=0),
-                    yaxis=dict(autorange="reversed")
-                )
-                st.plotly_chart(fig_heat, use_container_width=True)
-                st.caption("Cell shows % of reviews that were negative, with total review count in parentheses. Blank cells mean no reviews yet for that product/category combination.")
-            else:
-                st.info("No category data available for this selection.")
-        else:
-            st.info("No category data available for this selection.")
+                            st.caption(f"% negative reviews by category for {selected_model}. Label shows % negative and total review count.")
+                    else:
+                        st.info("No category data available for this selection.")
+                else:
+                    st.info("No category data available for this selection.")
 
     with c_right:
         st.subheader("Sentiment Distribution")
