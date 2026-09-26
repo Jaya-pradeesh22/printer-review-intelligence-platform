@@ -28,6 +28,11 @@ from app.api.highlights_api import router as highlights_router
 from app.models.raw_review import RawReview
 from app.api.reviews_api import router as raw_reviews_router
 
+from app.models.audit_log import AuditLog
+from app.api.admin_reviews_api import router as admin_reviews_router
+
+
+
 
 
 Base.metadata.create_all(bind=engine)
@@ -61,6 +66,11 @@ app.include_router(
     raw_reviews_router,
     tags=["Raw Reviews"]
 )
+app.include_router(
+    admin_reviews_router,
+    tags=["Admin"]
+)
+
 
 @app.get("/")
 def home():
@@ -148,7 +158,10 @@ def issue_sentiment_analytics():
     ).all()
 
     db.close()
-    analytics={}
+    analytics = {}
     for category, sentiment, count in results:
         if category not in analytics:
-            analytics[category]
+            analytics[category] = {}
+        analytics[category][sentiment] = count
+
+    return analytics
