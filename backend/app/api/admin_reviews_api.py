@@ -102,13 +102,14 @@ def bulk_reclassify(payload: BulkReclassifyRequest):
 
     updated = 0
     for review in reviews:
-        old_category, old_sentiment = review.category, review.sentiment_source
-        new_category, new_sentiment = classify_review(review.review_body, review.rating_value)
-        if new_category != old_category or new_sentiment != old_sentiment:
-            review.category = new_category
-            review.sentiment_source = new_sentiment
-            review.sentiment = new_sentiment
-            updated += 1
+           old_category, old_sentiment = review.category, review.sentiment_source
+           result = classify_review(review.review_body, review.rating_value)
+           new_category, new_sentiment = result["category"], result["sentiment"]
+           if new_category != old_category or new_sentiment != old_sentiment:
+               review.category = new_category
+               review.sentiment_source = result["sentiment_source"]
+               review.sentiment = new_sentiment
+               updated += 1
 
     db.commit()
     _log_action(

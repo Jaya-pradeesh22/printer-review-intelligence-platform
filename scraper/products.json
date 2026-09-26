@@ -1,0 +1,11 @@
+{
+  "amazon": [
+    {"model_name": "HP Smart Tank 580", "url": "https://www.amazon.in/product-reviews/B0BN1S41VH/ref=cm_cr_dp_d_show_all_top?_encoding=UTF8&ie=UTF8&reviewerType=all_reviews"},
+    {"model_name": "HP Laser 1008w Printer", "url": "https://www.amazon.in/product-reviews/B0C2C22DXR/ref=cm_cr_dp_d_show_all_top?_encoding=UTF8&ie=UTF8&reviewerType=all_reviews"},
+    {"model_name": "HP capable AI Ink Advantage 4388", "url": "https://www.amazon.in/product-reviews/B0G6C7P342/ref=cm_cr_dp_d_show_all_top?_encoding=UTF8&ie=UTF8&reviewerType=all_reviews"}
+  ],
+  "hp": [
+    {"model_name": "HP DeskJet Ink Advantage 2975", "url": "https://www.hp.com/in-en/shop/products/printers/hp-deskjet-ink-advantage-2986-all-in-one-printer-a24j8b-acj#review-section"},
+    {"model_name": "HP Smart Tank 750 All-in-one Series", "url": "https://www.hp.com/in-en/shop/products/printers/hp-smart-tank-750-all-in-one-6uu47a-acj#review-section"}
+  ]
+}

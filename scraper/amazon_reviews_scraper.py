@@ -6,8 +6,18 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 import re
+import sys
 import time
 import json
+import os
+
+PRODUCTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "products.json")
+
+
+def load_products(source_key):
+    with open(PRODUCTS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f).get(source_key, [])
+
 
 # ==========================================
 # PRODUCTS TO SCRAPE
@@ -17,35 +27,16 @@ import json
 # (under "Product details"), or copy the URL from the "See all reviews"
 # link on the product page.
 # ==========================================
-PRODUCTS = [
-    {
-        "model_name": "HP Smart Tank 580",
-        "url": (
-            "https://www.amazon.in/product-reviews/"
-            "B0BN1S41VH/"
-            "ref=cm_cr_dp_d_show_all_top"
-            "?_encoding=UTF8&ie=UTF8&reviewerType=all_reviews"
-        ),
-    },
-    {
-        "model_name": "HP Laser 1008w Printer",
-        "url": (
-            "https://www.amazon.in/product-reviews/"
-            "B0C2C22DXR/"
-            "ref=cm_cr_dp_d_show_all_top"
-            "?_encoding=UTF8&ie=UTF8&reviewerType=all_reviews"
-        ),
-    },
-    {
-        "model_name": "HP capable AI Ink Advantage 4388",
-        "url": (
-            "https://www.amazon.in/product-reviews/"
-            "B0G6C7P342/"
-            "ref=cm_cr_dp_d_show_all_top"
-            "?_encoding=UTF8&ie=UTF8&reviewerType=all_reviews"
-        ),
-    },
-]
+PRODUCTS = load_products("amazon")
+
+# Optional: run as  python amazon_reviews_scraper.py "Exact Model Name"
+# to scrape just that one product instead of the whole list.
+if len(sys.argv) > 1:
+    target_model = sys.argv[1]
+    PRODUCTS = [p for p in PRODUCTS if p["model_name"] == target_model]
+    if not PRODUCTS:
+        print(f"No product named '{target_model}' found in products.json under 'amazon'.")
+        sys.exit(1)
 
 MAX_PAGES = 10  # safety cap on how many times we click "Show more reviews"
 # (each click appends ~10 more reviews to the same list)

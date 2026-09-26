@@ -5,28 +5,34 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+import sys
 import time
 import json
+import os
+
+PRODUCTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "products.json")
+
+
+def load_products(source_key):
+    with open(PRODUCTS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f).get(source_key, [])
+
 
 # ==========================================
 # PRODUCTS TO SCRAPE
-# Add more (model_name, url) pairs here for
-# other printer models you want to track.
+# Managed via products.json (or the admin dashboard's Add Product form),
+# not hardcoded here anymore.
 # ==========================================
-PRODUCTS = [
-    {
-        "model_name": "HP DeskJet Ink Advantage 2975",
-        "url": "https://www.hp.com/in-en/shop/products/printers/hp-deskjet-ink-advantage-2986-all-in-one-printer-a24j8b-acj#review-section"
-    },
-    {
-        "model_name": "HP Smart Tank 750 All-in-one Series",
-        "url": "https://www.hp.com/in-en/shop/products/printers/hp-smart-tank-750-all-in-one-6uu47a-acj#review-section"
-    }
-    # {
-    #     "model_name": "HP Smart Tank 580",
-    #     "url": "PASTE HP.COM PRODUCT PAGE URL HERE"
-    # }
-]
+PRODUCTS = load_products("hp")
+
+# Optional: run as  python hp_reviews_scraper.py "Exact Model Name"
+# to scrape just that one product instead of the whole list.
+if len(sys.argv) > 1:
+    target_model = sys.argv[1]
+    PRODUCTS = [p for p in PRODUCTS if p["model_name"] == target_model]
+    if not PRODUCTS:
+        print(f"No product named '{target_model}' found in products.json under 'hp'.")
+        sys.exit(1)
 
 # ==========================================
 # LAUNCH CHROME

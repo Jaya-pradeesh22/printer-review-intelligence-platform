@@ -154,6 +154,18 @@ st.markdown("""
     }
     .role-admin { background: #ede9fe; color: #5b21b6; }
     .role-user { background: #e0f2fe; color: #075985; }
+    
+    .admin-review-card {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 8px;
+    }
+    .admin-review-card:hover {
+        border-color: #cbd5e1;
+        background-color: #fafafa;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -163,12 +175,6 @@ OLLAMA_MODEL = "phi3"
 
 # -------------------------------------------------------------------
 # Auth — simple username/password login for office use.
-#
-# NOTE: These are plaintext credentials for convenience in a small
-# internal-office setting. If this ever needs to be more secure
-# (external access, more users, etc.), move CREDENTIALS into
-# st.secrets (a local .streamlit/secrets.toml file, gitignored) and/or
-# hash the passwords instead of storing them in code.
 # -------------------------------------------------------------------
 CREDENTIALS = {
     "admin": {"password": "admin123", "role": "admin"},
@@ -242,10 +248,6 @@ CATEGORY_GROUP_MAP = {
     "App & Software": "Setup & Functionality"
 }
 
-# A small stopword list for the chat retrieval step - just enough to
-# stop generic words like "the" or "printer" from dominating the
-# keyword match and drowning out the actually distinctive terms in a
-# question (e.g. "wifi", "duplex", "streaks").
 CHAT_STOPWORDS = {
     "the", "a", "an", "is", "are", "was", "were", "what", "why", "how",
     "does", "do", "did", "with", "for", "and", "or", "of", "in", "on",
@@ -308,6 +310,7 @@ if not raw_df.empty and "sentiment" not in raw_df.columns:
         raw_df["sentiment"] = "Neutral 😐"
 
 if not raw_df.empty and "sentiment" in raw_df.columns:
+    raw_df["sentiment_raw"] = raw_df["sentiment"]
     raw_df["sentiment"] = raw_df["sentiment"].apply(map_sentiment)
 
 if not raw_df.empty and "rating_value" in raw_df.columns:
@@ -318,13 +321,6 @@ if not raw_df.empty and "rating_value" in raw_df.columns:
 # Extract Robust Printer Model List (role-aware)
 # -------------------------------------------------------------------
 def get_all_models(df_raw, df_hl, role="user", hidden_models=None):
-    """
-    Admins see every model name found in either dataset, including ones
-    with zero raw reviews yet (useful for spotting ingestion gaps).
-    Users only see models that actually have raw review data AND
-    haven't been explicitly hidden by an admin - this avoids the
-    confusing "0 reviews" dead-end for non-technical users.
-    """
     hidden_models = hidden_models or set()
 
     all_models = set()
@@ -349,16 +345,6 @@ def get_all_models(df_raw, df_hl, role="user", hidden_models=None):
 # AI-Powered QA Insight Generation (Ollama)
 # -------------------------------------------------------------------
 def ollama_generate(prompt, timeout=180):
-    """
-    Raw call to local Ollama. Returns the generated text, or None if
-    Ollama isn't running / times out / errors. The exact reason for a
-    failure is stashed in st.session_state["last_ollama_error"] so the
-    UI can show *why* it failed instead of one generic sentence.
-
-    timeout defaults to 180s because phi3 on CPU-only hardware can
-    genuinely take over a minute for a multi-paragraph answer.
-    num_predict caps the response length so it finishes faster.
-    """
     try:
         response = requests.post(
             f"{OLLAMA_BASE_URL}/api/generate",
@@ -422,13 +408,21 @@ def select_representative_samples(review_series, max_samples=6, min_length=40, m
 def build_qa_prompt(category, sample_reviews, insight_type):
     reviews_block = "\n".join(f"- {r}" for r in sample_reviews)
 
+    grounding_rule = (
+        'GROUNDING RULE: Do not state any specific number, statistic, timing, capacity, '
+        'or product specification (e.g. "25 seconds per page", "12,000 page yield") unless '
+        'that exact figure is written verbatim in the text above. If no specific figures are '
+        'present, describe the issue or strength in qualitative terms only - do not estimate '
+        'or invent numbers to sound precise.'
+    )
+
     if insight_type == "negative":
         return f"""You are a QA analyst reviewing real customer complaints for a printer's "{category}" category.
 
 Customer complaints:
 {reviews_block}
 
-Based ONLY on these actual complaints, write a structured analysis with exactly these three headers:
+Write a structured analysis using EXACTLY these three headers, in this exact order, with nothing before the first header and nothing after the last one.
 
 WHAT'S HAPPENING: 2-3 sentences describing the specific, concrete failure pattern you see across these complaints. Be specific to what customers actually described, not a generic statement.
 
@@ -436,14 +430,14 @@ LIKELY ROOT CAUSE: Your best technical hypothesis for why this happens, reasonin
 
 RECOMMENDATION: One concrete, engineer-actionable recommendation - specific enough that an engineer or support lead could act on it directly, not generic advice like "improve quality."
 
-Respond in plain text using exactly those three headers, nothing else before or after."""
+Reminder: {grounding_rule}"""
     else:
         return f"""You are a product analyst reviewing real customer praise for a printer's "{category}" category.
 
 Customer comments:
 {reviews_block}
 
-Based ONLY on these actual comments, write a structured analysis with exactly these three headers:
+Write a structured analysis using EXACTLY these three headers, in this exact order, with nothing before the first header and nothing after the last one.
 
 WHAT CUSTOMERS LOVE: 2-3 sentences on the specific, concrete thing customers appreciate. Be specific to what they actually said, not a generic statement.
 
@@ -451,7 +445,7 @@ WHY IT WORKS: Your best hypothesis on the underlying design or engineering choic
 
 MARKETING ANGLE: One concrete suggestion for how to highlight this specific strength, referencing the actual theme in what customers said.
 
-Respond in plain text using exactly those three headers, nothing else before or after."""
+Reminder: {grounding_rule}"""
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -563,7 +557,43 @@ def show_review_modal(sentiment_filter, model_name, reviews_subset):
     if sentiment_filter != "Total":
         df_sub = df_sub[df_sub["sentiment"].str.contains(sentiment_filter, case=False, na=False)]
 
-    search_query = st.text_input("🔍 Search within these reviews...", "")
+    # ---------------- Filter row ----------------
+    f1, f2, f3, f4, f5 = st.columns(5)
+
+    with f1:
+        opts = ["All"] + sorted(df_sub["model_name"].dropna().unique().tolist()) if "model_name" in df_sub.columns else ["All"]
+        model_choice = st.selectbox("Model", opts, key="modal_filter_model")
+
+    with f2:
+        opts = ["All"] + sorted(df_sub["category"].dropna().unique().tolist()) if "category" in df_sub.columns else ["All"]
+        category_choice = st.selectbox("Category", opts, key="modal_filter_category")
+
+    with f3:
+        opts = ["All"] + sorted(df_sub["sentiment"].dropna().unique().tolist()) if "sentiment" in df_sub.columns else ["All"]
+        sentiment_choice = st.selectbox("Sentiment", opts, key="modal_filter_sentiment")
+
+    with f4:
+        star_vals = sorted({int(v) for v in df_sub["rating_value"].dropna().unique()}, reverse=True) if "rating_value" in df_sub.columns else []
+        opts = ["All"] + [str(v) for v in star_vals]
+        star_choice = st.selectbox("Stars", opts, key="modal_filter_stars")
+
+    with f5:
+        opts = ["All"] + sorted(df_sub["source"].dropna().unique().tolist()) if "source" in df_sub.columns else ["All"]
+        platform_choice = st.selectbox("Platform", opts, key="modal_filter_platform")
+
+    search_query = st.text_input("🔍 Search within these reviews...", "", key="modal_filter_search")
+
+    # ---------------- Apply filters ----------------
+    if model_choice != "All":
+        df_sub = df_sub[df_sub["model_name"] == model_choice]
+    if category_choice != "All":
+        df_sub = df_sub[df_sub["category"] == category_choice]
+    if sentiment_choice != "All":
+        df_sub = df_sub[df_sub["sentiment"] == sentiment_choice]
+    if star_choice != "All":
+        df_sub = df_sub[df_sub["rating_value"] == int(star_choice)]
+    if platform_choice != "All":
+        df_sub = df_sub[df_sub["source"] == platform_choice]
     if search_query:
         df_sub = df_sub[df_sub["review_body"].str.contains(search_query, case=False, na=False)]
 
@@ -586,8 +616,151 @@ def show_review_modal(sentiment_filter, model_name, reviews_subset):
         height=380
     )
 
-    if st.button("✖ Close", use_container_width=True):
+    if st.button("✖ Close", use_container_width=True, key="modal_close_btn"):
         st.rerun()
+
+
+# -------------------------------------------------------------------
+# Admin Helper Functions
+# -------------------------------------------------------------------
+def admin_fetch_reviews(search_term=""):
+    """Fetch reviews with optional search filter - uses cached data."""
+    df = fetch_raw_reviews()
+    if df.empty:
+        return []
+    
+    reviews = df.to_dict('records')
+    if search_term:
+        search_lower = search_term.lower()
+        reviews = [
+            r for r in reviews 
+            if search_lower in str(r.get('model_name', '')).lower() 
+            or search_lower in str(r.get('review_body', '')).lower()
+        ]
+    return reviews
+
+
+def admin_get_models():
+    """Get list of models with reviews."""
+    df = fetch_raw_reviews()
+    if df.empty:
+        return []
+    return sorted(df['model_name'].dropna().unique().tolist())
+
+
+def admin_update_review(review_id, category, sentiment):
+    """Update a review's category and sentiment."""
+    try:
+        response = requests.patch(
+            f"{API_BASE_URL}/raw-reviews/{review_id}",
+            json={
+                "category": category,
+                "sentiment_source": sentiment,
+                "actor": st.session_state.username
+            },
+            timeout=5
+        )
+        if response.status_code == 200:
+            return True, "Review updated successfully!"
+        else:
+            return False, f"Failed: {response.text}"
+    except Exception as e:
+        return False, f"Error: {e}"
+
+
+def admin_delete_review(review_id):
+    """Delete a review."""
+    try:
+        response = requests.delete(
+            f"{API_BASE_URL}/raw-reviews/{review_id}",
+            params={"actor": st.session_state.username},
+            timeout=5
+        )
+        if response.status_code == 200:
+            return True, "Review deleted successfully!"
+        else:
+            return False, f"Failed: {response.text}"
+    except Exception as e:
+        return False, f"Error: {e}"
+
+
+def admin_bulk_reclassify(review_ids):
+    """Bulk reclassify reviews."""
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/raw-reviews/bulk-reclassify",
+            json={
+                "review_ids": review_ids,
+                "actor": st.session_state.username
+            },
+            timeout=600  # embedding-based reclassify is slower than the old heuristic
+        )
+        if response.status_code == 200:
+            result = response.json()
+            return True, f"Reclassified {result['updated']} out of {result['processed']} reviews!"
+        else:
+            return False, f"Failed: {response.text}"
+    except Exception as e:
+        return False, f"Error: {e}"
+
+
+def admin_fetch_audit_log(limit=50):
+    """Fetch recent audit log entries."""
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/audit-log",
+            params={"limit": limit},
+            timeout=5
+        )
+        if response.status_code == 200:
+            return response.json()
+    except Exception:
+        pass
+    return []
+
+
+PRODUCTS_FILE_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scraper", "products.json")
+)
+
+
+def load_scraper_products():
+    """Reads the shared products.json that both scrapers and this dashboard use."""
+    try:
+        with open(PRODUCTS_FILE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"amazon": [], "hp": []}
+
+
+def save_scraper_products(products_dict):
+    with open(PRODUCTS_FILE_PATH, "w", encoding="utf-8") as f:
+        json.dump(products_dict, f, indent=2, ensure_ascii=False)
+
+
+def launch_scraper_script(script_name, model_name=None):
+    """Launches a scraper script in a new terminal window (Windows).
+    If model_name is given, passes it as a CLI arg so the scraper only
+    scrapes that one product instead of every product in products.json."""
+    try:
+        frontend_dir = os.path.dirname(os.path.abspath(__file__))
+        scraper_dir = os.path.normpath(os.path.join(frontend_dir, "..", "scraper"))
+
+        if not os.path.isdir(scraper_dir):
+            return False, f"Scraper folder not found at: {scraper_dir}"
+
+        arg_part = f' "{model_name}"' if model_name else ""
+        inner_cmd = (
+            f'cd /d "{scraper_dir}" && '
+            f'call venv\\Scripts\\activate && '
+            f'python {script_name}{arg_part}'
+        )
+        full_command = f'cmd /k "{inner_cmd}"'
+        subprocess.Popen(full_command, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        label = f"{script_name} for '{model_name}'" if model_name else script_name
+        return True, f"Launched {label} in a new terminal window."
+    except Exception as e:
+        return False, f"Couldn't launch: {e}"
 
 
 # -------------------------------------------------------------------
@@ -656,62 +829,138 @@ with st.sidebar:
                 st.success("Saved.")
                 st.rerun()
 
-        with st.expander("▶️ Run a scraper"):
-            st.caption(
-                "Launches the script in a new terminal window. You'll still need to "
-                "complete any manual login/browser steps the scraper prompts for - "
-                "this just saves you opening the terminal and activating the venv yourself."
-            )
-            scraper_choice = st.selectbox(
-                "Script",
-                ["amazon_reviews_scraper.py", "amazon_reviews_to_highlights.py",
-                 "hp_reviews_scraper.py", "hp_reviews_to_highlights.py",
-                 "highlights_scraper.py"]
-            )
-            if st.button("Launch in new terminal", use_container_width=True):
-                try:
-                    # Assumes the standard project layout: frontend/dashboard.py
-                    # sits alongside a sibling "scraper" folder with its own venv.
-                    # NOTE: %~dp0 is a batch-file-only token - it does NOT expand
-                    # when passed straight to `cmd /k`, which caused "system
-                    # cannot find the path specified." Computing the real path
-                    # in Python (which already knows where this file lives)
-                    # avoids that entirely.
-                    frontend_dir = os.path.dirname(os.path.abspath(__file__))
-                    scraper_dir = os.path.normpath(os.path.join(frontend_dir, "..", "scraper"))
+        
 
-                    if not os.path.isdir(scraper_dir):
-                        st.error(
-                            f"Scraper folder not found at: {scraper_dir}\n\n"
-                            "Adjust the relative path in the code if your project "
-                            "layout is different."
-                        )
-                    else:
-                        inner_cmd = (
-                            f'cd /d "{scraper_dir}" && '
-                            f'call venv\\Scripts\\activate && '
-                            f'python {scraper_choice}'
-                        )
-                        # Passing this as a LIST to Popen (e.g. ["cmd", "/k", inner_cmd])
-                        # makes Python's list2cmdline re-quote each element, which
-                        # mangles the nested quotes around scraper_dir and breaks the
-                        # whole command ("filename, directory name, or volume label
-                        # syntax is incorrect"). Passing one full string instead lets
-                        # Windows hand it to cmd.exe verbatim, the same way it'd work
-                        # if you typed it into Run (Win+R) yourself.
-                        full_command = f'cmd /k "{inner_cmd}"'
-                        subprocess.Popen(
-                            full_command,
-                            creationflags=subprocess.CREATE_NEW_CONSOLE
-                        )
-                        st.success(f"Launched {scraper_choice} in a new terminal window.")
-                except Exception as e:
-                    st.error(f"Couldn't launch: {e}")
+        # --- NEW: Manage / Edit Reviews ---
+        with st.expander("🗑️ Manage / Edit Reviews"):
+            st.caption("Search, edit, or delete individual reviews.")
+            
+            search_term = st.text_input("🔍 Search by model name or review text", "", key="admin_review_search")
+            
+            reviews = admin_fetch_reviews(search_term)
+            
+            if reviews:
+                st.write(f"Showing {min(len(reviews), 20)} of {len(reviews)} reviews")
+                
+                for review in reviews[:20]:
+                    with st.container():
+                        st.markdown(f"""
+                        <div class="admin-review-card">
+                            <b>{review.get('model_name', 'Unknown')}</b> 
+                            <span style="color:#64748b;font-size:0.8rem;">| ID: {review.get('id')} | Rating: {review.get('rating_value', 'N/A')}⭐</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        col1, col2, col3 = st.columns([3, 2, 1])
+                        
+                        with col1:
+                            st.caption(f"\"{str(review.get('review_body', ''))[:150]}...\"")
+                        
+                        with col2:
+                            categories = ["Connectivity", "Print Quality", "Reliability", "Setup & Install", 
+                                        "App & Software", "Ink & Cost", "Speed", "Support", "General"]
+                            current_cat = review.get('category', 'General')
+                            cat_index = categories.index(current_cat) if current_cat in categories else 0
+                            
+                            new_category = st.selectbox(
+                                "Category",
+                                categories,
+                                index=cat_index,
+                                key=f"admin_cat_{review['id']}"
+                            )
+                            
+                            sentiments = ["POSITIVE", "NEGATIVE", "NEUTRAL"]
+                            current_sent = str(review.get('sentiment_raw', 'NEUTRAL')).upper()
+                            sent_index = sentiments.index(current_sent) if current_sent in sentiments else 2
+
+                            new_sentiment = st.selectbox(
+                                "Sentiment",
+                                sentiments,
+                                index=sent_index,
+                                key=f"admin_sent_{review['id']}"
+                            )
+                        
+                        with col3:
+                            if st.button("💾 Update", key=f"admin_update_{review['id']}"):
+                                success, message = admin_update_review(review['id'], new_category, new_sentiment)
+                                if success:
+                                    st.success(f"✅ {message}")
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {message}")
+                            
+                            confirm_del = st.checkbox("Confirm delete", key=f"admin_confirm_{review['id']}")
+                            if st.button("🗑️ Delete", key=f"admin_delete_{review['id']}", disabled=not confirm_del):
+                                success, message = admin_delete_review(review['id'])
+                                if success:
+                                    st.success(f"✅ {message}")
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {message}")
+                        
+                        st.divider()
+            else:
+                st.info("No reviews found matching your search.")
+
+        # --- NEW: Bulk Re-classify ---
+        with st.expander("🔄 Bulk Re-classify"):
+            st.caption("Re-run AI classification on reviews for a specific model.")
+            
+            df = fetch_raw_reviews()
+            if not df.empty:
+                models = admin_get_models()
+                model_filter = st.selectbox("Select model to reclassify", ["All Models"] + models)
+                
+                if st.button("🚀 Run Bulk Re-classification", use_container_width=True):
+                    with st.spinner("Reclassifying reviews... This may take a moment."):
+                        if model_filter == "All Models":
+                            review_ids = df['id'].tolist()
+                        else:
+                            review_ids = df[df['model_name'] == model_filter]['id'].tolist()
+                        
+                        if not review_ids:
+                            st.warning("No reviews found for this model.")
+                        else:
+                            success, message = admin_bulk_reclassify(review_ids)
+                            if success:
+                                st.success(f"✅ {message}")
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {message}")
+            else:
+                st.info("No reviews found in the database.")
+
+        # --- NEW: Audit Log ---
+        with st.expander("📜 Audit Log"):
+            st.caption("Recent admin actions (edits, deletes, bulk reclassifications).")
+            
+            entries = admin_fetch_audit_log(limit=50)
+            if entries:
+                for entry in entries:
+                    st.markdown(f"""
+                    **{entry.get('actor', 'Unknown')}** - `{entry.get('action', 'unknown')}`  
+                    {entry.get('details', 'No details')}  
+                    *{entry.get('timestamp', '')}*
+                    ---
+                    """)
+            else:
+                st.info("No audit log entries found.")
 
 # -------------------------------------------------------------------
 # Main Dashboard Layout
 # -------------------------------------------------------------------
-tab_dashboard, tab_qa, tab_assistant = st.tabs(["📊 Executive Dashboard", "💡 QA & Topic Insights", "🤖 AI Review Assistant"])
+if IS_ADMIN:
+    tab_dashboard, tab_qa, tab_assistant, tab_admin = st.tabs(
+        ["📊 Executive Dashboard", "💡 QA & Topic Insights", "🤖 AI Review Assistant", "🛠️ Admin Console"]
+    )
+else:
+    tab_dashboard, tab_qa, tab_assistant = st.tabs(
+        ["📊 Executive Dashboard", "💡 QA & Topic Insights", "🤖 AI Review Assistant"]
+    )
+    tab_admin = None
 
 with tab_dashboard:
     f_col1, f_col2 = st.columns([7, 3])
@@ -741,10 +990,6 @@ with tab_dashboard:
     st.markdown("---")
 
     # ---------------- Primary KPI Row (Total / Positive / Negative / Neutral) ----------------
-    # Neutral IS a genuine, real label here - Ollama classifies ambiguous
-    # 3-star reviews as POSITIVE, NEGATIVE, or NEUTRAL based on actually
-    # reading the review text, so a review landing here means Ollama
-    # judged it truly mixed, not a placeholder default.
     st.markdown("### Key Performance Indicators")
 
     total_cnt = len(filtered_reviews)
@@ -1005,73 +1250,85 @@ with tab_dashboard:
 # -------------------------------------------------------------------
 with tab_qa:
     st.subheader("💡 Key Quality & Product Action Insights")
-    st.markdown("AI-generated analysis synthesized from actual customer review text - not templated category counts.")
+    st.markdown("Click **Generate** on any category below to run AI analysis on demand. Nothing runs automatically, so the page loads instantly.")
 
     reviews_to_analyze = filtered_reviews if 'filtered_reviews' in locals() else raw_df
 
-    if not reviews_to_analyze.empty:
-        q1, q2 = st.columns(2)
+    MIN_REVIEWS_FOR_INSIGHT = 3  # skip categories with too few reviews to say anything meaningful
 
-        with q1:
-            st.markdown("#### 🚨 Top Complaint Area")
-            neg_reviews = reviews_to_analyze[reviews_to_analyze["sentiment"].str.contains("Negative", na=False)]
+    if "qa_insights_cache" not in st.session_state:
+        st.session_state.qa_insights_cache = {}  # {(category, insight_type): insight_text}
 
-            if not neg_reviews.empty and "category" in neg_reviews.columns:
-                top_issues = neg_reviews["category"].value_counts().head(3)
+    def render_category_block(category, count, samples, insight_type, icon):
+        cache_key = (category, insight_type)
 
-                for cat, count in top_issues.items():
-                    st.error(f"**{cat}**: {count} negative feedback instances")
+        with st.expander(f"{icon} {category} — {count} {'negative' if insight_type == 'negative' else 'positive'} reviews"):
+            if not samples:
+                st.info("Not enough detailed review text in this category yet to generate an insight.")
+                return
 
-                top_category = top_issues.index[0]
-                top_cat_reviews = neg_reviews[neg_reviews["category"] == top_category]
-                samples = select_representative_samples(top_cat_reviews["review_body"])
+            cached_insight = st.session_state.qa_insights_cache.get(cache_key)
 
-                st.markdown(f"##### 🔍 AI Diagnosis: {top_category}")
-                if not samples:
-                    st.info("Not enough detailed review text in this category yet to generate a diagnosis.")
-                else:
-                    with st.spinner(f"Analyzing {len(samples)} {top_category} complaints with AI..."):
-                        insight = generate_qa_insight_cached(top_category, tuple(samples), "negative")
-
-                    if insight:
-                        st.markdown(insight)
-                        st.caption(f"Based on {len(samples)} representative reviews out of {len(top_cat_reviews)} total in this category.")
+            if cached_insight is None:
+                if st.button(f"⚡ Generate AI insight for {category}", key=f"gen_{insight_type}_{category}"):
+                    with st.spinner(f"Analyzing {len(samples)} {category} {insight_type} reviews with AI..."):
+                        result = generate_qa_insight_cached(category, tuple(samples), insight_type)
+                    if result:
+                        st.session_state.qa_insights_cache[cache_key] = result
+                        st.rerun()
                     else:
                         st.warning(ollama_failure_message())
             else:
-                st.success("No significant negative trends detected for this selection.")
+                st.markdown(cached_insight)
+                st.caption(f"Based on {len(samples)} representative reviews out of {count} total in this category.")
+                st.markdown("**📄 Source reviews used:**")
+                for s in samples:
+                    st.markdown(f"<div class='source-chip'>{s}</div>", unsafe_allow_html=True)
+                if st.button("🔄 Regenerate this one", key=f"regen_{insight_type}_{category}"):
+                    del st.session_state.qa_insights_cache[cache_key]
+                    st.rerun()
 
-        with q2:
-            st.markdown("#### 🌟 Core Strength")
-            pos_reviews = reviews_to_analyze[reviews_to_analyze["sentiment"].str.contains("Positive", na=False)]
+    if not reviews_to_analyze.empty and "category" in reviews_to_analyze.columns:
+        neg_reviews = reviews_to_analyze[reviews_to_analyze["sentiment"].str.contains("Negative", na=False)]
+        pos_reviews = reviews_to_analyze[reviews_to_analyze["sentiment"].str.contains("Positive", na=False)]
 
-            if not pos_reviews.empty and "category" in pos_reviews.columns:
-                top_praise = pos_reviews["category"].value_counts().head(3)
+        neg_category_counts = neg_reviews["category"].value_counts()
+        pos_category_counts = pos_reviews["category"].value_counts()
 
-                for cat, count in top_praise.items():
-                    st.success(f"**{cat}**: {count} positive mentions")
+        neg_categories = neg_category_counts[neg_category_counts >= MIN_REVIEWS_FOR_INSIGHT]
+        pos_categories = pos_category_counts[pos_category_counts >= MIN_REVIEWS_FOR_INSIGHT]
 
-                top_category_pos = top_praise.index[0]
-                top_cat_pos_reviews = pos_reviews[pos_reviews["category"] == top_category_pos]
-                samples_pos = select_representative_samples(top_cat_pos_reviews["review_body"])
-
-                st.markdown(f"##### ✨ AI Synthesis: {top_category_pos}")
-                if not samples_pos:
-                    st.info("Not enough detailed review text in this category yet to generate a synthesis.")
-                else:
-                    with st.spinner(f"Analyzing {len(samples_pos)} {top_category_pos} comments with AI..."):
-                        insight_pos = generate_qa_insight_cached(top_category_pos, tuple(samples_pos), "positive")
-
-                    if insight_pos:
-                        st.markdown(insight_pos)
-                        st.caption(f"Based on {len(samples_pos)} representative reviews out of {len(top_cat_pos_reviews)} total in this category.")
-                    else:
-                        st.warning(ollama_failure_message())
-            else:
-                st.info("No positive callouts detected yet.")
+        st.caption(
+            f"{len(neg_categories)} complaint categories and {len(pos_categories)} strength "
+            f"categories have at least {MIN_REVIEWS_FOR_INSIGHT} reviews each. Each insight you "
+            f"generate is cached for an hour, so you only pay the wait once per category."
+        )
 
         st.markdown("---")
-        if st.button("🔄 Regenerate AI Insights", help="Clears the cached AI analysis and generates fresh insights from the current data"):
+
+        st.markdown("### 🚨 Complaint Areas")
+        if neg_categories.empty:
+            st.success("No category has enough negative reviews yet for a reliable AI diagnosis.")
+        else:
+            for category, count in neg_categories.items():
+                cat_reviews = neg_reviews[neg_reviews["category"] == category]
+                samples = select_representative_samples(cat_reviews["review_body"])
+                render_category_block(category, count, samples, "negative", "🔍")
+
+        st.markdown("---")
+
+        st.markdown("### 🌟 Core Strengths")
+        if pos_categories.empty:
+            st.info("No category has enough positive reviews yet for a reliable AI synthesis.")
+        else:
+            for category, count in pos_categories.items():
+                cat_reviews = pos_reviews[pos_reviews["category"] == category]
+                samples_pos = select_representative_samples(cat_reviews["review_body"])
+                render_category_block(category, count, samples_pos, "positive", "✨")
+
+        st.markdown("---")
+        if st.button("🗑️ Clear all generated insights", help="Clears everything you've generated in this session, plus the underlying 1-hour cache"):
+            st.session_state.qa_insights_cache = {}
             generate_qa_insight_cached.clear()
             st.rerun()
     else:
@@ -1142,3 +1399,106 @@ with tab_assistant:
                     "content": answer,
                     "sources": sources
                 })
+
+# -------------------------------------------------------------------
+# Tab 4: Admin Console (admin only)
+# -------------------------------------------------------------------
+if IS_ADMIN and tab_admin is not None:
+    with tab_admin:
+        st.subheader("🛠️ Scraper Pipelines")
+        st.caption(
+            "Each source has two steps that must run in order: scrape the raw reviews first, "
+            "then classify + post them to the backend. Both launch in a separate terminal window "
+            "— you'll still complete any manual login/captcha steps the scraper asks for there."
+        )
+
+        products = load_scraper_products()
+
+        pipe_col1, pipe_col2 = st.columns(2)
+
+        with pipe_col1:
+            with st.container(border=True):
+                st.markdown("#### 🛒 Amazon Pipeline")
+
+                amz_models = [p["model_name"] for p in products.get("amazon", [])]
+                amz_choice = st.selectbox(
+                    "Model to scrape", ["All Amazon models"] + amz_models, key="amz_model_choice"
+                )
+                amz_target = None if amz_choice == "All Amazon models" else amz_choice
+
+                st.markdown("**Step 1 — Scrape**")
+                st.caption("`amazon_reviews_scraper.py`" + (f" — {amz_target}" if amz_target else ""))
+                if st.button("▶️ Launch Amazon Scrape", use_container_width=True, key="launch_amz_scrape"):
+                    ok, msg = launch_scraper_script("amazon_reviews_scraper.py", amz_target)
+                    st.success(msg) if ok else st.error(msg)
+
+                st.markdown("**Step 2 — Classify & Post**")
+                st.caption("`amazon_reviews_to_highlights.py` (always processes the full scraped JSON)")
+                if st.button("▶️ Launch Amazon Classify & Post", use_container_width=True, key="launch_amz_post"):
+                    ok, msg = launch_scraper_script("amazon_reviews_to_highlights.py")
+                    st.success(msg) if ok else st.error(msg)
+
+        with pipe_col2:
+            with st.container(border=True):
+                st.markdown("#### 🖨️ HP.com Pipeline")
+
+                hp_models = [p["model_name"] for p in products.get("hp", [])]
+                hp_choice = st.selectbox(
+                    "Model to scrape", ["All HP.com models"] + hp_models, key="hp_model_choice"
+                )
+                hp_target = None if hp_choice == "All HP.com models" else hp_choice
+
+                st.markdown("**Step 1 — Scrape**")
+                st.caption("`hp_reviews_scraper.py`" + (f" — {hp_target}" if hp_target else ""))
+                if st.button("▶️ Launch HP Scrape", use_container_width=True, key="launch_hp_scrape"):
+                    ok, msg = launch_scraper_script("hp_reviews_scraper.py", hp_target)
+                    st.success(msg) if ok else st.error(msg)
+
+                st.markdown("**Step 2 — Classify & Post**")
+                st.caption("`hp_reviews_to_highlights.py` (always processes the full scraped JSON)")
+                if st.button("▶️ Launch HP Classify & Post", use_container_width=True, key="launch_hp_post"):
+                    ok, msg = launch_scraper_script("hp_reviews_to_highlights.py")
+                    st.success(msg) if ok else st.error(msg)
+
+        st.markdown("---")
+        st.markdown("#### ➕ Add a New Product")
+        st.caption("Adds to products.json. Doesn't scrape anything by itself — pick the new model in the dropdown above afterward and launch its scrape.")
+
+        with st.form("add_product_form", clear_on_submit=True):
+            new_source = st.selectbox("Source", ["amazon", "hp"])
+            new_model_name = st.text_input("Model name (exact, used for grouping everywhere)")
+            new_url = st.text_input(
+                "Product page URL",
+                help="Amazon: the /product-reviews/... URL. HP.com: the product page URL ending in #review-section."
+            )
+            add_submitted = st.form_submit_button("Add Product")
+
+            if add_submitted:
+                if not new_model_name.strip() or not new_url.strip():
+                    st.error("Both model name and URL are required.")
+                else:
+                    products.setdefault(new_source, [])
+                    if any(p["model_name"] == new_model_name.strip() for p in products[new_source]):
+                        st.error(f"A {new_source} product named '{new_model_name}' already exists.")
+                    else:
+                        products[new_source].append({
+                            "model_name": new_model_name.strip(),
+                            "url": new_url.strip()
+                        })
+                        save_scraper_products(products)
+                        st.success(f"Added '{new_model_name}' to {new_source}. Select it above to scrape it.")
+                        st.rerun()
+
+        with st.expander("📋 Current products"):
+            for source_key, label in [("amazon", "Amazon"), ("hp", "HP.com")]:
+                st.markdown(f"**{label}**")
+                for p in products.get(source_key, []):
+                    st.markdown(f"- {p['model_name']}")
+                    st.caption(p['url'])
+
+        st.markdown("---")
+        with st.expander("Other / manual scripts"):
+            st.caption("Older or standalone scripts not part of the two main pipelines above.")
+            if st.button("▶️ Launch highlights_scraper.py", key="launch_legacy_highlights"):
+                ok, msg = launch_scraper_script("highlights_scraper.py")
+                st.success(msg) if ok else st.error(msg)
