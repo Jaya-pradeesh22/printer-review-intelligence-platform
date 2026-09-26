@@ -51,13 +51,25 @@ def _is_ambiguous(rating: int) -> bool:
 # ── Model (loaded once, reused across all calls) ──────────────────────────────
 
 _model = None
+_category_embeddings = None  # computed once, reused for every review
 
 
 def _get_model():
     global _model
     if _model is None:
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
+        _model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
     return _model
+
+
+def _get_category_embeddings():
+    global _category_embeddings
+    if _category_embeddings is None:
+        model = _get_model()
+        _category_embeddings = {
+            category: model.encode(" ".join(keywords), convert_to_tensor=True)
+            for category, keywords in CATEGORIES.items()
+        }
+    return _category_embeddings
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -68,25 +80,36 @@ def classify_review(review_text: str, rating: int) -> dict:
 
     Returns:
         {
-            "category":         str,   # one of CATEGORIES keys, or "General"
+            "category":         str,   # one of CATEGORIES keys, "General / No Issue", or "Others / Unclear"
             "sentiment":        str,   # POSITIVE | NEGATIVE | NEUTRAL
             "sentiment_source": str,   # "rating_heuristic" | "ollama"
         }
     """
     # ── 1. Category via embedding similarity ──────────────────────────────────
     model = _get_model()
+    category_embeddings = _get_category_embeddings()
     review_embedding = model.encode(review_text, convert_to_tensor=True)
 
-    best_category = "General"
+    best_category = "Others / Unclear"
     best_score = -1.0
 
-    for category, keywords in CATEGORIES.items():
-        keyword_text = " ".join(keywords)
-        keyword_embedding = model.encode(keyword_text, convert_to_tensor=True)
+    for category, keyword_embedding in category_embeddings.items():
         score = float(util.cos_sim(review_embedding, keyword_embedding))
         if score > best_score:
             best_score = score
             best_category = category
+
+    # Below this, nothing was a genuine match - either a generic/no-issue
+    # review, or text too short/garbled to classify with confidence.
+    CONFIDENCE_THRESHOLD = 0.35  # starting point - tune against your labeled examples
+    if best_score < CONFIDENCE_THRESHOLD:
+        word_count = len(review_text.strip().split())
+        if word_count <= 2:
+            best_category = "Others / Unclear"
+        elif rating is not None and (rating >= POSITIVE_MIN or rating <= NEGATIVE_MAX):
+            best_category = "General / No Issue"
+        else:
+            best_category = "Others / Unclear"
 
     # ── 2. Sentiment ──────────────────────────────────────────────────────────
     if rating is not None and not _is_ambiguous(rating):
